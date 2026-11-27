@@ -1,0 +1,467 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Ball Multiplier</title>
+
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: #080b1b;
+    color: white;
+    font-family: Arial, sans-serif;
+    width: 100%;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.game {
+    width: 100vw;
+    height: 100dvh;
+    max-width: none;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+h1 {
+    color: #ff5cce;
+    margin-bottom: 12px;
+    font-size: 28px;
+}
+
+.stats {
+    display: flex;
+    justify-content: space-around;
+    margin: 20px 0;
+    gap: 10px;
+}
+
+.stat {
+    background: #151a32;
+    padding: 12px;
+    border-radius: 10px;
+    flex: 1;
+}
+
+.stat span {
+    display: block;
+    color: #5deaff;
+    font-size: 23px;
+    margin-top: 5px;
+}
+
+canvas {
+    width: min(100vw, 56.25dvh);
+    height: min(100dvh, 177.78vw);
+    background: radial-gradient(#111831, #050714);
+    border-radius: 0;
+    display: block;
+    margin: auto;
+    flex-shrink: 0;
+}
+
+.controls {
+    margin-top: 20px;
+}
+
+button {
+    background: #ff55cb;
+    border: none;
+    padding: 12px 25px;
+    margin: 5px;
+    border-radius: 25px;
+    color: #080b1b;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 15px;
+}
+
+button:hover {
+    background: #ff91df;
+}
+
+#message {
+    margin-top: 15px;
+    color: #61f5d0;
+}
+</style>
+</head>
+
+<body>
+
+<div class="game">
+
+    <canvas id="gameCanvas" width="360" height="640"></canvas>
+
+</div>
+
+<script>
+
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+const centerX = 180;
+const centerY = 320;
+
+const circleRadius = 135;
+const ballRadius = 7;
+
+const gapWidth = 0.85;
+const MAX_BALLS = 512;
+
+// Physics
+const gravity = 350;
+const bounceStrength = 0.92;
+const rotationSpeed = 1.1;
+
+const MIN_SPEED = 180;
+const MAX_SPEED = 260;
+
+// Exact neon colour palette
+const neonColors = [
+    "#ff1744", // Neon red
+    "#ff00ff", // Neon pink
+    "#00e5ff", // Neon cyan
+    "#39ff14", // Neon green
+    "#bc13fe", // Neon purple
+    "#ffff00", // Neon yellow
+    "#ff9100"  // Neon orange
+];
+
+let balls = [];
+let score = 0;
+let running = false;
+let animationId;
+let lastTime = 0;
+
+let circleAngle = 0;
+let hue = 0;
+
+// Random neon colour
+function randomColor() {
+    return neonColors[
+        Math.floor(Math.random() * neonColors.length)
+    ];
+}
+
+// Create ball at centre
+function createBall() {
+
+    const angle = Math.random() * Math.PI * 2;
+    const speed = MIN_SPEED + Math.random() * (MAX_SPEED - MIN_SPEED);
+
+    return {
+        x: centerX,
+        y: centerY,
+
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+
+        color: randomColor(),
+        trail: [],
+        remove: false
+    };
+}
+
+// Angle difference
+function angleDifference(a, b) {
+    return Math.atan2(
+        Math.sin(a - b),
+        Math.cos(a - b)
+    );
+}
+
+// Check rotating opening
+function isInGap(angle) {
+    return Math.abs(
+        angleDifference(angle, circleAngle)
+    ) < gapWidth / 2;
+}
+
+// Reset
+function resetGame() {
+
+    cancelAnimationFrame(animationId);
+
+    running = false;
+    score = 0;
+    circleAngle = 0;
+    hue = 0;
+
+    balls = [createBall()];
+
+    updateStats();
+    draw();
+
+    // Message removed for recording mode.
+}
+
+// Start
+function startGame() {
+
+    if (running) return;
+
+    running = true;
+    lastTime = 0;
+
+    // Start without displaying a message.
+
+    animationId = requestAnimationFrame(gameLoop);
+}
+
+// Physics
+function update(delta) {
+
+    circleAngle += rotationSpeed * delta;
+    hue = (hue + 65 * delta) % 360;
+
+    let newBalls = [];
+
+    for (const ball of balls) {
+
+        if (ball.remove) continue;
+
+        // Gravity pulls downwards
+        ball.vy += gravity * delta;
+
+        // Move ball
+        ball.x += ball.vx * delta;
+        ball.y += ball.vy * delta;
+
+        // Escaped balls continue travelling outside the circle
+        if (ball.escaped) {
+            ball.trail.push({ x: ball.x, y: ball.y });
+            if (ball.trail.length > 16) ball.trail.shift();
+            if (ball.x < -30 || ball.x > 390 || ball.y < -30 || ball.y > 670) {
+                ball.remove = true;
+            }
+            continue;
+        }
+
+        // Save trail position
+        ball.trail.push({
+            x: ball.x,
+            y: ball.y
+        });
+
+        if (ball.trail.length > 16) {
+            ball.trail.shift();
+        }
+
+        const dx = ball.x - centerX;
+        const dy = ball.y - centerY;
+
+        const distance = Math.hypot(dx, dy);
+        const maxDistance = circleRadius - ballRadius;
+
+        // Circular wall collision
+        if (distance >= maxDistance) {
+
+            const angle = Math.atan2(dy, dx);
+
+            // Escape through opening and remain visible
+            if (isInGap(angle)) {
+
+                // Mark ball as escaped and allow it to travel outside
+                ball.escaped = true;
+
+                // Create two new balls at centre
+                if (balls.length + newBalls.length + 1 <= MAX_BALLS) {
+                    newBalls.push(createBall());
+                    newBalls.push(createBall());
+                }
+
+            } else {
+
+                // Calculate wall normal
+                const nx = dx / distance;
+                const ny = dy / distance;
+
+                // Reflect velocity
+                const dot = ball.vx * nx + ball.vy * ny;
+
+                ball.vx -= (1 + bounceStrength) * dot * nx;
+                ball.vy -= (1 + bounceStrength) * dot * ny;
+
+                // Keep ball inside circle
+                ball.x = centerX + nx * (maxDistance - 0.5);
+                ball.y = centerY + ny * (maxDistance - 0.5);
+            }
+        }
+    }
+
+    balls = balls.filter(ball => !ball.remove);
+    balls.push(...newBalls);
+
+    updateStats();
+
+    if (balls.length === 0) {
+
+        running = false;
+
+        // Recording mode: no game-over message
+    }
+}
+
+// RGB neon ring
+function drawCircle() {
+
+    const start = circleAngle + gapWidth / 2;
+    const end = circleAngle + Math.PI * 2 - gapWidth / 2;
+
+    const ringColor = `hsl(${hue}, 100%, 60%)`;
+
+    ctx.save();
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, circleRadius, start, end);
+
+    ctx.strokeStyle = ringColor;
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = ringColor;
+
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+// Draw colourful ball trails
+function drawTrails() {
+
+    for (const ball of balls) {
+
+        for (let i = 0; i < ball.trail.length; i++) {
+
+            const point = ball.trail[i];
+            const progress = (i + 1) / ball.trail.length;
+
+            ctx.beginPath();
+
+            ctx.arc(
+                point.x,
+                point.y,
+                ballRadius * progress * 0.8,
+                0,
+                Math.PI * 2
+            );
+
+            ctx.fillStyle = ball.color;
+            ctx.globalAlpha = progress * 0.45;
+
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = ball.color;
+
+            ctx.fill();
+        }
+    }
+
+    ctx.globalAlpha = 1;
+}
+
+// Draw glowing balls
+function drawBalls() {
+
+    for (const ball of balls) {
+
+        ctx.save();
+
+        ctx.beginPath();
+
+        ctx.arc(
+            ball.x,
+            ball.y,
+            ballRadius,
+            0,
+            Math.PI * 2
+        );
+
+        ctx.fillStyle = ball.color;
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = ball.color;
+
+        ctx.fill();
+
+        ctx.restore();
+    }
+}
+
+// Draw game
+function draw() {
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawCircle();
+    drawTrails();
+    drawBalls();
+}
+
+// Scoreboard
+function updateStats() {
+    // Scoreboard removed for recording mode
+}
+
+// Animation
+function gameLoop(timestamp) {
+
+    if (!running) return;
+
+    if (!lastTime) lastTime = timestamp;
+
+    const delta = Math.min(
+        (timestamp - lastTime) / 1000,
+        0.016
+    );
+
+    lastTime = timestamp;
+
+    // Small physics steps for more reliable collisions
+    const steps = 2;
+    for (let i = 0; i < steps; i++) {
+        update(delta / steps);
+    }
+
+    draw();
+
+    if (running) {
+        animationId = requestAnimationFrame(gameLoop);
+    }
+}
+
+// Initialize
+resetGame();
+
+function activateGame() {
+    if (!running) {
+        startGame();
+    }
+}
+
+document.addEventListener('click', activateGame);
+
+document.addEventListener('keydown', function(event) {
+    if (!event.repeat) {
+        activateGame();
+    }
+});
+
+
+</script>
+
+</body>
+</html>

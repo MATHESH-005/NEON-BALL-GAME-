@@ -1,0 +1,23 @@
+
+[
+  {
+    "name": "Fix resetGame after removing message",
+    "find": "    document.getElementById(\"message\").innerText =\n        \"Press START to begin!\";",
+    "replace": "    // Message removed for recording mode."
+  },
+  {
+    "name": "Fix startGame after removing message",
+    "find": "    document.getElementById(\"message\").innerText =\n        \"Neon balls are bouncing!\";",
+    "replace": "    // Start without displaying a message."
+  },
+  {
+    "name": "Mouse click anywhere and any keyboard key",
+    "find": "canvas.addEventListener('click', activateGame);\n\ndocument.addEventListener('keydown', function(event) {\n    if (event.key === 'Enter') {\n        event.preventDefault();\n        activateGame();\n    }\n});",
+    "replace": "document.addEventListener('click', activateGame);\n\ndocument.addEventListener('keydown', function(event) {\n    if (!event.repeat) {\n        activateGame();\n    }\n});"
+  },
+  {
+    "name": "Fix vertical canvas clearing",
+    "find": "ctx.clearRect(0, 0, 500, 500);",
+    "replace": "ctx.clearRect(0, 0, canvas.width, canvas.height);"
+  }
+]
